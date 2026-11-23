@@ -1,6 +1,6 @@
 ﻿# SignalRoom Build Log
 
-## November 22, 2026 â€” Task 1: foundation
+## November 22, 2026 — Task 1: foundation
 
 ### Current phase
 
@@ -89,7 +89,7 @@ Hand-authored additions only:
 Exact shared build/unit-test error (path prefix omitted):
 
 ```text
-wrangler.toml: [vars] has no valid DEEPSPACE_APP_ID (found "__APP_ID__"). The browser keys its RecordRooms to this id, so the build stops rather than ship a wrong or empty one. Run `npx deepspace app init` to register this app â€” ids are server-minted; never hand-write one.
+wrangler.toml: [vars] has no valid DEEPSPACE_APP_ID (found "__APP_ID__"). The browser keys its RecordRooms to this id, so the build stops rather than ship a wrong or empty one. Run `npx deepspace app init` to register this app — ids are server-minted; never hand-write one.
 ```
 
 ### Known problems and warnings
@@ -206,4 +206,59 @@ vitest.config.ts
 worker.ts
 wrangler.toml
 ```
+
+
+## November 22, 2026 - Task 2 retrospective and Task 3 foundation checks
+
+### Task 2 verified results
+
+- Registered existing scaffold on production to the confirmed Agam Singh developer account. App list verified owner role. App ID prefix: app_01M83E7B.
+- app init replaced the placeholder in wrangler.toml and created commit f55c52b, Initial commit (DeepSpace scaffold + working tree), containing 84 files.
+- Initial sandbox registration failed with network_error; approved expanded-permission retry exited 0. No deployment or source claim occurred.
+- TypeScript and lint exited 0. Build exited 0; initial sandbox logging EPERM was eliminated by an expanded-permission build retry, also exit 0.
+- npm.cmd run test: exit 0, 8 browser/API tests passed.
+- npx.cmd deepspace test run unit: initial sandbox secret-refresh failure, then exit 0 with 3 unit tests passed.
+- npx.cmd deepspace test run all: exit 0, 3 unit and 8 browser/API tests passed; 3 authenticated tests skipped for zero usable test accounts.
+- Started development on port 5173. Direct Chrome inspection was stopped by computer-use URL-confidence enforcement, so no manual visual verification was claimed.
+- CLI tools created ignored local configuration/secrets, routes, build output and reports. Secret contents were not read or copied.
+
+### Task 3 scope and blocker
+
+Read AGENTS.md, PRD.md and BUILD_LOG.md. Developer login remains valid. The official usable-account check reports No test accounts. The user explicitly requires stopping implementation if app authentication is not testable. No incident schema, form, action, new test or insecure workaround was added. CLI authentication does not supply a browser test-user session.
+
+### Commands and findings
+
+- npx.cmd deepspace auth whoami --json: exit 0, same developer identity.
+- npx.cmd deepspace test accounts --help; create --help; recover --help: inspected installed CLI support.
+- npx.cmd deepspace test accounts list --usable: no accounts. No accounts fabricated, created or recovered.
+- Get-NetTCPConnection -LocalPort 5173 -State Listen: sandbox access denied; expanded-permission retry confirmed listener at 0.0.0.0:5173, PID 11304. No process killed.
+- npx.cmd deepspace test run all: exit 1, port_in_use. Did not execute the suggested dev kill; used the documented alternate port instead.
+- npx.cmd deepspace test run all --port 5180: final results recorded below.
+- Read src/schemas.ts, src/schemas/users-schema.ts, src/actions/index.ts, tests/helpers/errors.ts and installed schema.d.ts/testing.d.ts. No credential files read.
+- git status --short, git remote -v, git log -1 --oneline: initially clean, no remotes, commit f55c52b on master.
+- npx.cmd deepspace app source --json and npx.cmd deepspace status --json: exit 0; production; source null, revision 0, no live deployment. sourceInference is deepspace because no GitHub remote exists; that is not a claim.
+
+### Research
+
+Consulted official /guides/testing, /guides/data-storage.md and /concepts/permissions.md at https://docs.deep.space, plus installed SDK 0.44.2 definitions. Native collections, record envelopes, subscribed React queries, confirmed mutations and server-side permissions can be reused. ColumnDefinition includes required/maxLength/userBound/immutable/default but no minLength; the title minimum requires further server validation research. Do not invent schema syntax.
+
+The existing users schema does not set defaultRole. Docs say authenticated users default to member. Explicit team authorization policy still needs to be resolved before implementing private records. Full Phase B research and implementation remain pending the authentication prerequisite.
+
+### Supported account setup
+
+Use the official CLI to create two dedicated accounts with chosen addresses ending in @deepspace.test. Command shape: npx.cmd deepspace test accounts create --email <chosen-address>@deepspace.test --name <chosen-name> --password-stdin. Supply a chosen password of at least 8 characters locally through stdin; never put it in source, shell arguments or chat. The CLI help does not document an interactive masked prompt, so do not assume one.
+
+For already-owned accounts missing local credentials, test accounts recover --all is supported; it does not create accounts. No recovery was attempted because the usable list is empty and no existing accounts were identified.
+
+Confirm two accounts using test accounts list --usable, then rerun npx.cmd deepspace test run all --port 5180. The shipped users(2) fixture authenticates real independent browser contexts.
+
+### Files, limitations and next step
+
+Documentation-only changes: docs/BUILD_LOG.md and docs/LEARNING_NOTES.md. No application functionality changed. Incident creation, reload persistence, invalid title/severity/status, creator spoofing and unauthorized-write tests have NOT run because the incident feature is not implemented. Finish account setup and authenticated starter verification, then resume the requested create/read slice. No deploy, remote, push, branch change or new commit performed.
+
+### Task 3 final verification result
+
+The alternate-port all-suite command exited 0: 3 unit tests passed in 2 files; 8 browser/API tests passed; 3 authenticated tests skipped with Needs 2 usable test accounts, found 0. Automated Chromium verified / and /home on port 5180. The landing error-capture assertion passed (its helper filters favicon and Chromium metrics noise); /home tests assert navigation/sign-in visibility, not a comprehensive console audit. Server output showed normal WebSocket close code 1001 and NO_COLOR/FORCE_COLOR warnings, with no observed worker exception. No independent manual browser inspection or incident test was claimed. Existing server on 5173 was left untouched.
+
+An initial documentation patch could not match the BOM-prefixed heading and made no changes. Documentation was then appended using explicit UTF-8. Also repaired two previously garbled em dashes in this historical log without changing their meaning.
 
