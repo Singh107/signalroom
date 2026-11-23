@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import { INCIDENT_STATUSES, type IncidentStatus } from './incident-lifecycle'
 
 // Strict input rejects creator/ACL/timestamp spoofing as well as unknown fields.
 export const incidentInput = z.object({
@@ -9,4 +10,13 @@ export const incidentInput = z.object({
   status: z.literal('open').optional().default('open'),
 }).strict()
 
-export type Incident = z.infer<typeof incidentInput> & { participantIds: string[] }
+export const incidentTransitionInput = z.object({
+  incidentId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  status: z.enum(INCIDENT_STATUSES),
+}).strict()
+
+export type Incident = Omit<z.infer<typeof incidentInput>, 'status'> & {
+  status: IncidentStatus
+  participantIds: string[]
+  resolvedAt?: string | null
+}

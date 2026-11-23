@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { incidentInput } from './incidents'
-import { canAccessIncidents, INCIDENT_PARTICIPANTS } from './incident-access'
+import { canAccessIncidents, INCIDENT_PARTICIPANTS, incidentReadPermission } from './incident-access'
+import { incidentsSchema } from '../schemas/incidents-schema'
 
 describe('incident boundary rules', () => {
   const valid = { title: ' API outage ', service: ' API ', severity: 'sev1' }
@@ -11,6 +12,21 @@ describe('incident boundary rules', () => {
     for (const id of INCIDENT_PARTICIPANTS) expect(canAccessIncidents(id)).toBe(true)
     expect(canAccessIncidents('someone-else')).toBe(false)
     expect(canAccessIncidents('')).toBe(false)
+  })
+  it('fails closed for every membership change, including removal of a creator', () => {
+    expect(incidentReadPermission()).toBe('collaborator')
+    for (const id of INCIDENT_PARTICIPANTS) {
+      expect(incidentReadPermission(INCIDENT_PARTICIPANTS.filter((entry) => entry !== id))).toBe(false)
+    }
+    expect(incidentReadPermission([...INCIDENT_PARTICIPANTS, 'new-user'])).toBe(false)
+    expect(incidentReadPermission(['replacement', INCIDENT_PARTICIPANTS[1]])).toBe(false)
+    expect(incidentReadPermission([])).toBe(false)
+  })
+  it('denies all native mutations, including admin writes', () => {
+    for (const permissions of Object.values(incidentsSchema.permissions)) {
+      expect(permissions).toMatchObject({ create: false, update: false, delete: false })
+    }
+    expect(incidentsSchema.permissions.member.read).toBe(incidentReadPermission())
   })
   it.each([
     { title: '' }, { title: 'abcd' }, { title: 'x'.repeat(121) },

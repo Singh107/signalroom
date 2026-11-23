@@ -30,7 +30,7 @@ Authentication proves identity. Authorization grants access. The native CLI test
 
 Server actions bypass collection RBAC, which makes their explicit allowlist and validation mandatory. Native reads still apply collaborator RBAC. No role, including admin, gets general client mutation permission on incidents. An unauthorized signed-in user cannot turn membership into incident access. The caller cannot choose creator identity or participant IDs.
 
-The participants list is deliberately static for this small slice. Changing membership later also requires reconciling existing records' participantIds; editing the constant alone does not revoke already-stored read grants. No membership-management workflow is implemented.
+The participants list is deliberately static. Task 5 adds a fail-closed baseline check: changing the allowlist disables native incident reads for all roles and disables incident actions. Existing collaborator and creator grants still need a separately reviewed migration; see the revocation procedure below. No membership-management workflow is implemented.
 
 ## 5. Refresh persistence
 
@@ -61,3 +61,53 @@ https://docs.deep.space/concepts/permissions
 https://docs.deep.space/concepts/realtime-sync
 https://docs.deep.space/sdk-reference/worker/schemas
 Installed SDK 0.44.2 index.d.ts/worker.d.ts/schema.d.ts and record/client implementations.
+
+## Task 5 — Lifecycle and security review (November 23, 2026)
+
+### A state machine is a small map of legal moves
+
+An incident has one current state. `nextIncidentStatus` returns its only legal next state: open → investigating, investigating → resolved, resolved → investigating. An unknown stored state returns null. `canTransitionIncident` compares that permitted next state to the requested state. Self-transitions are rejected too. The UI uses the same pure map to choose its button; sharing a map avoids two different definitions of the workflow.
+
+Creation remains restricted to open by `incidentInput`. The stored `Incident` type now supports all three statuses. `incidentTransitionInput` separately validates an ID (1–128 letters, digits, underscores or hyphens), an exact supported status, and no extra fields. A caller cannot submit creator, ACL or timestamp fields.
+
+### Why the server checks again
+
+A user can bypass buttons and send an HTTP request. The existing action route verifies the JWT and passes its userId to `transitionIncident`. That function checks `canAccessIncidents` before any privileged read, parses the input, calls `tools.get('incidents', incidentId)`, and checks the stored status. A failed lookup is returned unchanged; a forbidden edge returns `invalid_transition`. Only then does it call `tools.update<Incident>` with a narrow patch. This is essential because action tools bypass native collection permissions. Both allowed participants share the entire incident workspace; there are no per-incident teams.
+
+`tools.update` patches an existing record and returns a recordId, not the updated record. It does not create a missing incident. We send only status and, on entering investigating, resolvedAt:null. We never copy request input into the stored envelope. The platform retains createdBy and createdAt and updates updatedAt. A text `resolvedAt` column with `timestampTrigger: { field: 'status', value: 'resolved' }` makes the RecordRoom stamp an ISO date when status enters resolved. The trigger alone does not clear the old time on reopening, so the action clears it explicitly. SDK reads can omit a SQL NULL column; treat absent resolvedAt as null. Resolving again generates a new timestamp. This is the current resolution time, not a history of past resolutions.
+
+### What the browser does
+
+`IncidentLifecycle` receives the record ID and current subscribed status. Its `transition` handler gets the auth token, POSTs the next state, checks HTTP success AND the result's success flag, and displays server/network failures. While the request is pending, the button says Updating… and is disabled. `finally` clears pending. It never changes the displayed status optimistically: `useQuery` receives the persisted RecordRoom update and React renders the new state and next button. The record update can arrive before the HTTP acknowledgement because these are separate transports, but it still comes from a committed server write. A refresh reconnects the subscription and reads the stored state again.
+
+### Revocation: fail closed, then migrate deliberately
+
+Security finding: SDK 0.44.2's collaborator permission means creator OR listed collaborator. Removing an ID from only the allowlist, or even from all participantIds, is insufficient for records that person created.
+
+`incidentReadPermission` compares the current allowlist with a frozen `STORED_GRANT_BASELINE` of the two supported identities. A removal, addition or replacement returns false. The native schema uses that result for viewer/member/admin read permissions; the wildcard always denies reads. `canAccessIncidents` also checks the safeguard, so incident actions stop during a mismatch. A unit regression exercises removals of either identity, addition, replacement and empty membership; schema tests verify the guard is wired in and all native writes remain denied. This mitigation intentionally causes an outage rather than leaving stale access active. It is not automatic ACL migration or a dynamic membership system.
+
+For a future membership change:
+
+1. Change the allowlist only; DO NOT update the frozen baseline to silence the safeguard. Restart the local runtime (or, in a future deployed app, activate the new Worker and ensure old connections/runtimes are drained). Verify native incident reads are denied, including from the former participant. Merely editing a local file cannot revoke access in an already-running old binary.
+2. Keep reads disabled while designing and testing the access migration. Reconcile every existing participantIds list AND replace creator-based authorization with an explicit, revocable policy while preserving createdBy as historical metadata. Never erase or rewrite creator history merely to revoke access.
+3. Verify old creators, old collaborators, active subscriptions and alternate native read/tool paths cannot read, then deliberately re-enable an audited policy. This migration and its runtime revocation tests are not part of Task 5. Do not change the baseline before they exist.
+
+Already-delivered data cannot be recalled from another person's browser. Local developer debug/Explorer facilities are trusted development tools, not a shared hosting environment; keep the dev server on loopback. No debug bypass was added for tests.
+
+### Concurrency is still a limitation
+
+Official real-time docs describe serialized individual writes and last-write field merging. Installed ActionTools has `get` and `update`, but no expected-version, conditional-update or transaction parameter; the scaffold sends each as a separate DO request. Therefore load → check → update is NOT atomic. Two requests can both validate an old status and both succeed. A delayed request can overwrite a later lifecycle change; duplicate clicks in different clients are not prevented by one disabled button. A narrow patch protects unrelated fields, not the state-machine invariant under contention.
+
+Before relying on this for simultaneous operators, implement a verified DO-side conditional transition that checks and writes within one atomic operation (or use a documented conditional-update API if the platform adds one), then add contention tests. No process-local lock or second read is presented as a solution. Current tests prove sequential server validation and persistence, not race safety. The PRD's future transition-plus-history atomicity requirement also remains unfinished; no timeline is implemented here.
+
+### Manual lifecycle check and interview practice
+
+Start a current official local runtime, sign in as Agam, open /incidents, create an incident, Start investigating, Resolve incident, then Reopen investigation. Refresh after each move. Confirm creator/creation time do not change, resolvedAt appears on resolution and disappears on reopen, and only one next-action button is offered.
+
+1. What is a state machine, and why is open → resolved rejected?
+2. Why must the server validate a transition even if the UI offers only valid buttons?
+3. How do tools.get and tools.update preserve creation metadata, and who stamps resolvedAt?
+4. Why does a status survive refresh, and how does another subscription receive it?
+5. Why do serialized writes not make get → check → update atomic, and what would fix that?
+
+Additional references: https://docs.deep.space/guides/server-actions.md, https://docs.deep.space/sdk-reference/worker/schemas.md, https://docs.deep.space/concepts/permissions.md, https://docs.deep.space/concepts/realtime-sync.md. Verified against installed SDK types and implementation rather than inferring atomicity from general documentation wording.

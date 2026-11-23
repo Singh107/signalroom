@@ -8,15 +8,19 @@ if (!appId) throw new Error('Missing app ID in test configuration')
 // Use the same cookie-to-JWT exchange as the installed getAuthToken implementation.
 // Tokens stay inside the browser and are never returned to the test runner.
 export async function postIncident(page: Page, data: Record<string, unknown>) {
-  return page.evaluate(async (input) => {
+  return postIncidentAction(page, 'createIncident', data)
+}
+
+export async function postIncidentAction(page: Page, name: 'createIncident' | 'transitionIncident', data: Record<string, unknown>) {
+  return page.evaluate(async ({ name, input }) => {
     const auth = await fetch('/api/auth/token', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
     const session = await auth.json()
-    const response = await fetch('/api/actions/createIncident', {
+    const response = await fetch(`/api/actions/${name}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}) },
       body: JSON.stringify(input),
     })
     return { status: response.status, body: await response.json() }
-  }, data)
+  }, { name, input: data })
 }
 
 export async function recordRequest(page: Page, message: ClientMessage, expectedType: string) {

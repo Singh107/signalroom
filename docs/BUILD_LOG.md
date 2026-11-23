@@ -315,3 +315,62 @@ Manual check: start official dev runtime, open /incidents, sign in as Agam, crea
 ### Final build and commit review
 
 Final production build after the module separation exited 0 and prerendered the landing page. Final TypeScript and lint checks exited 0. Reviewed all source/test changes and documentation, checked diff whitespace, and confirmed .dev.vars, .deepspace, dist and node_modules are Git-ignored. Read-only app source reports source:null, revision:0; git remote -v is empty. The local feature commit will include only the 13 explicitly reviewed source, test and documentation files; no generated state, credentials or dependency changes. The parent commit e657dbe (Setting up the project 1) was already present when Task 4 began and is preserved.
+
+## November 23, 2026 — Task 5: security review and incident lifecycle
+
+### Starting point and security findings
+
+Started from clean master at 8c750b1 (Add private incident creation and persistent record listing). Read PRD, build log, learning notes, AGENTS.md, all five requested implementation files, and the scaffold action/record routes. CLI identity confirmed Agam Singh, agamsingh3001@gmail.com, developer account. SDK remains 0.44.2; no dependencies or generated infrastructure changed.
+
+The allowlist uses stable verified user IDs, not email/name matching. The Worker validates bearer authentication before action dispatch; create and transition actions independently authorize before privileged tools. Native incidents permissions deny create/update/delete for every role, including admin. Existing and new browser/API tests prove nonparticipant/signed-out read and action denial and deny direct create/update bypasses.
+
+Found a revocation hazard: stored participantIds remain after an allowlist edit, and SDK collaborator access also includes createdBy. Mitigated before adding lifecycle behavior with a frozen grant baseline: changing the participant set makes incidentReadPermission return false for all native role reads, and canAccessIncidents disables actions. Security unit checks passed first (19/19). This deliberately disables the workspace until an access migration is reviewed; it does not migrate old ACLs. Never update the baseline alongside the allowlist. LEARNING_NOTES contains the restart/drain, collaborator-plus-creator migration and re-verification procedure. Old runtimes and already-delivered browser data are explicit limits. No participant changes were made here.
+
+Targeted secret scan of all three pre-task commits (260 file versions) found zero private-key/JWT/literal credential pattern hits and no credential-file paths. Reviewed additions separately. .dev.vars, .deepspace, .wrangler, dist and node_modules remain ignored and untracked. Account IDs are identifiers, not credentials. No tokens, passwords, session files or generated build secrets were committed. Pattern scanning is not exhaustive proof against all possible secret formats.
+
+### Implementation and exact changed files
+
+- src/lib/incident-access.ts: fail-closed participant-set baseline and shared action/UI access check.
+- src/lib/incident-lifecycle.ts (new): pure supported statuses, next-state lookup and transition predicate.
+- src/lib/incidents.ts: strict transition request schema, stored status union and nullable/optional resolvedAt; creation still permits only open.
+- src/schemas/incidents-schema.ts: all three stored statuses, native ISO resolution timestamp trigger, guarded read policy; direct writes remain denied.
+- src/actions/index.ts: authenticated route's transitionIncident handler authorizes, parses, loads, checks, and patches only lifecycle fields; registers it alongside createIncident.
+- src/pages/(app)/(protected)/incidents.tsx: appropriate next-action button, pending/disabled state, error message, resolution time; status is driven by persisted record subscription.
+- src/lib/incidents.test.ts: membership-change safeguard and all-role native-write denial regressions.
+- src/actions/incidents.test.ts (new): all nine status pairs, malformed/spoofed inputs, unauthorized callers, unknown stored state, lookup/write failures and exact narrow metadata-preserving patches.
+- tests/helpers/incidents.ts: common authenticated action POST helper; tokens remain inside browser context.
+- tests/incident-lifecycle.spec.ts (new): seven real browser/API cases for lifecycle/refresh/metadata, invalid edges, unknown status/malformed IDs/spoofing, missing record, unauthorized users, direct native update denial, and pending/error UI.
+- docs/LEARNING_NOTES.md: state-machine explanation, function responsibilities, persisted update flow, revocation procedure, concurrency limits, manual verification and interview questions.
+- docs/BUILD_LOG.md: this evidence and outcome.
+
+### Verified API and concurrency findings
+
+Consulted official docs index, permissions, server actions, schemas and real-time sync, plus installed worker.d.ts/schema.d.ts and worker.js. The web reader could not fetch server-actions.md; direct official Markdown fetch succeeded. Relevant references are listed in LEARNING_NOTES.
+
+ActionTools.get returns a record envelope; update accepts a partial patch and returns a recordId. The SDK preserves createdBy/createdAt and maintains updatedAt. A text timestampTrigger on status=resolved stamps ISO time; reopening explicitly writes resolvedAt:null because the trigger does not clear old values. Absent/null reads both mean unresolved. Tests also resolve again and confirm a newer timestamp.
+
+Individual DO writes are serialized, but action get and update are separate requests with no conditional version/transaction argument in SDK 0.44.2. The implementation is NOT race-safe: simultaneous requests can validate stale states and a delayed write can overwrite an intervening lifecycle change. No atomic transition or transition-plus-history claim is made. A verified conditional operation inside the DO and contention tests are the recommended next small engineering task before extending collaboration features.
+
+### Commands, errors and final verification
+
+| Check | Final exit | Actual final result |
+| --- | --- | --- |
+| npm.cmd run type-check | 0 | TypeScript passed |
+| npm.cmd run lint | 0 | No diagnostics |
+| npm.cmd run build | 0 | Worker/client bundles and static landing prerender succeeded |
+| npx.cmd deepspace test run all --port 5180 | 0 | 42 unit tests in 4 files passed; 23 browser/API tests passed; 0 failed, 0 skipped |
+| git diff --check | 0 | No whitespace errors |
+
+All 17 previous unit tests and 16 previous browser/API tests remain; no old assertions were weakened. New unit coverage adds 25 cases, browser coverage adds seven cases (with loops covering multiple transitions/invalid inputs).
+
+Errors encountered and fixed: initial type-check exited 1 because TypeScript inferred the first conditional patch shape; tools.update<Incident> fixed the generic inference. First full suite exited 1 after 42 passing unit tests because the new browser file imported captureConsoleErrors from deepspace/testing; corrected it to the existing tests/helpers/errors module. No browser cases executed in that failed discovery run. The complete rerun passed all 65 tests. First build exited 0 but emitted EPERM for Wrangler's log directory outside the sandbox; reran with approved log-directory access, exit 0 without that error. Nonblocking color-environment and plugin-timing notices remain tooling output.
+
+Browser verification used the official test runner's own http://127.0.0.1:5180 server. Real clicks performed open → investigating → resolved → investigating, with a reload and native-record read after each move. Status persisted; createdBy/createdAt remained equal; resolvedAt appeared, cleared, and restamped on a subsequent resolution. Console/page-error capture for the lifecycle flow was empty. The pending/error test held the request, verified a disabled Updating… button, then sent an invalid transition to the actual server and verified its rejection message. Authorized direct native update returned success:false and left the full record unchanged. B was forbidden; signed-out action returned HTTP 401; B's native query returned no records.
+
+No unrelated server was killed. Test-owned server stopped with the runner. Local test records remain under __test- names; no cleanup endpoint was added. Local SQLite refresh persistence is verified, production persistence is not. Restart any older personal dev process to load the new schema before manual review.
+
+### Git, authority and stopping point
+
+Read-only git remote -v is empty. DeepSpace app source reports registered:true, source:null, revision:0. Status reports branch master and live:null. Its sourceInference:deepspace is only a default inference, not an authority claim. No push, deployment, remote creation, branch change or authority claim occurred. Reviewed the 12-file change for one focused local commit after passing checks; parent remains 8c750b1. The resulting commit ID is reported in the task response.
+
+Task 5 stops with lifecycle controls and tests. No recovery actions, timeline or polished dashboard were implemented. Membership migration and atomic concurrent transitions remain explicit limitations requiring their own reviewed work.
