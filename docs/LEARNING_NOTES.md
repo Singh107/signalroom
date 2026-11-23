@@ -1,48 +1,63 @@
 ﻿# SignalRoom Learning Notes
 
-## Current status
+## Implemented slice (Task 4, November 23, 2026)
 
-The incident create/read feature is not implemented. These notes describe the planned approach, not a working feature. Implementation paused at the user's authentication prerequisite: zero usable test accounts.
+The /incidents route creates and reads native records. Authorization is intentionally limited to Agam and Participant A. Participant B is an authenticated negative-control account. User IDs in src/lib/incident-access.ts are identifiers, not passwords. Account credentials remain in the CLI-managed local store.
 
-## 1. Database schema
+## 1. Schema and validation
 
-A schema is the rulebook for fields, constraints and access to stored records. DeepSpace schemas live in src/schemas/ and are registered in src/schemas.ts. TypeScript checking alone cannot reject a malicious network request; server validation must enforce the rules too. Installed SDK 0.44.2 supports required and maxLength, but no minLength column option. Research the server validation path before implementing the five-character title minimum.
+src/schemas/incidents-schema.ts describes the native incidents collection, columns and permissions; src/schemas.ts registers it with the existing Worker and React providers. Every client role has create/update/delete denied. Reads use collaborator permissions against server-owned participantIds.
 
-## 2. DeepSpace records
+src/lib/incidents.ts uses the already-installed Zod package to enforce title length 5–120 after trimming, nonempty trimmed service, description at most 2,000 characters, allowed severity, and only open initial status. strict() rejects unknown fields, including creator, timestamps and participant IDs. This parser runs in the server action; browser HTML validation is only a convenience.
 
-DeepSpace stores records in Durable Objects using typed SQL columns. A record is an envelope: metadata surrounds application fields under record.data. Reuse platform recordId and verified creator/timestamp metadata instead of trusting browser-supplied identity or duplicating metadata.
+## 2. Record storage and metadata
 
-## 3. Planned React read/create flow
+The existing AppRecordRoom stores typed SQLite records in a Durable Object. The action uses tools.create without a recordId: the platform generates it and stamps verified creator and timestamps. React receives an envelope with recordId, createdBy, createdAt, updatedAt and data. Incident fields live in record.data. Local testing persists in the existing ignored Wrangler state; this is not proof of a production deployment.
 
-Form values -> server-validated write -> persisted record -> subscribed React list. useQuery subscribes to collection records. useMutations provides createConfirmed, which waits for the server acknowledgement and rejects denied writes. Plain create can return an ID before acceptance; that is not proof of a saved record.
+## 3. Browser-to-server flow
 
-Hooks need the existing (app) provider boundary; the planned authenticated page belongs inside (app)/(protected). No incident form or function exists yet. Verify exact signatures and validation behavior before coding.
+IncidentsPage uses useAuth().userId and the shared access predicate to show the workspace or denial message. This UI gate is not the security boundary.
 
-## 4. Authentication and authorization
+IncidentWorkspace subscribes through useQuery('incidents'). Its submit handler receives a form event, reads FormData, obtains getAuthToken(), and POSTs to /api/actions/createIncident. It waits for both a successful HTTP response and success:true before clearing the form and saying Saved. Failure shows an error; finally re-enables the button. It returns a Promise<void>.
 
-Authentication establishes who someone is. Authorization decides what that identity may do. Developer CLI login is separate from app-browser login. A sign-in gate does not replace server permissions. DeepSpace normally gives authenticated users member role; decide explicit private-team admission before allowing incident access. Creator identity must come from verified server identity, not a form field.
+createIncident receives the verified userId, untrusted params and native action tools. It first checks the participant allowlist, then parses input. It returns a failure result without writing if either check fails. Otherwise tools.create persists the validated data plus server-selected open status and participantIds, returning the record ID result. The existing action route verifies the JWT and constructs tools with that caller identity.
 
-## 5. Persistence after refresh
+createConfirmed is deliberately not used: direct client mutations are denied so they cannot bypass the minimum-length/business validation action. The HTTP action awaits the native write result instead. useQuery receives the accepted record over the existing RecordProvider WebSocket; we did not build a WebSocket server.
 
-React state disappears on reload. Stored records remain, and the reloaded page queries them again. Test by waiting for an accepted write, refreshing, and finding the same record. Seeing an item immediately after clicking Create is insufficient evidence.
+## 4. Authentication versus authorization
+
+Authentication proves identity. Authorization grants access. The native CLI test accounts exercise real app sessions; developer CLI login alone cannot do that. canAccessIncidents takes a user ID and returns a boolean based on exactly two allowed IDs.
+
+Server actions bypass collection RBAC, which makes their explicit allowlist and validation mandatory. Native reads still apply collaborator RBAC. No role, including admin, gets general client mutation permission on incidents. An unauthorized signed-in user cannot turn membership into incident access. The caller cannot choose creator identity or participant IDs.
+
+The participants list is deliberately static for this small slice. Changing membership later also requires reconciling existing records' participantIds; editing the constant alone does not revoke already-stored read grants. No membership-management workflow is implemented.
+
+## 5. Refresh persistence
+
+Browser memory is disposable. The persistence test creates through the actual form, waits for Saved and the subscribed row, captures its record ID, reloads, and asserts that the same ID remains. It also queries the real record protocol and checks server creator, timestamps and open status. This checks storage rather than optimistic UI alone.
 
 ## 6. Manual verification
 
-Today: visit http://127.0.0.1:5173/ and /home. Confirm the starter renders and signed-out navigation offers sign-in. Inspect DevTools Console for unexpected errors. CLI login does not sign the app browser in.
+Start the official runtime from the project root with npx.cmd deepspace dev start (use an available --port if needed; do not kill an unrelated server). Open /incidents and sign in as Agam. Enter a title such as Payment API errors, service Payments API, severity SEV 2 and an optional description. Create, wait for Incident saved, reload and find the same record.
 
-For authenticated automated checks, create two dedicated @deepspace.test accounts using the official test accounts create command and --password-stdin. Keep passwords out of source, command arguments and chat. Confirm with npx.cmd deepspace test accounts list --usable, then run npx.cmd deepspace test run all --port 5180 while 5173 is occupied.
+Signed out, the protected route should show Sign in to continue. Participant B should see You are not an incident participant. Automated API tests send malformed requests directly to prove that HTML controls are not the only validation.
 
-After implementation, test valid creation/reload, empty/short/oversized titles, invalid severity, forced non-open status, spoofed creator and unauthorized writes against the actual server. None of those incident tests has executed yet.
+Run npx.cmd deepspace test run all --port 5180 with port 5180 free. Keep CLI-managed credential and storage-state files out of Git. Test records use __test- prefixes and remain in local storage: no delete feature or permissive cleanup endpoint was added solely for tests.
 
-## 7. Interview questions
+## 7. Five interview questions
 
-1. Why are browser form checks insufficient? Explain that a caller can send requests directly, so the server must validate.
-2. Why await a confirmed mutation? Explain the difference between sending a request and receiving acceptance.
-3. How would you prove persistence and permissions? Describe reload tests and real authorized/unauthorized sessions. Explain why skipped tests are not passes.
+1. Why use a server action instead of direct createConfirmed here? Explain the minimum-length check and denial of bypass writes.
+2. Why does authentication not imply permission? Trace Participant B through UI denial, action denial and filtered record reads.
+3. How is creator spoofing prevented? Trace the verified JWT userId through action tools and explain strict input rejection.
+4. How does a reload recover the same record? Distinguish React state, WebSocket subscriptions and persistent Durable Object SQLite.
+5. What would changing the participant list require? Discuss existing stored read grants and why membership revocation needs migration/verification.
 
-## Sources
+## Sources consulted
 
-- https://docs.deep.space/guides/data-storage
-- https://docs.deep.space/concepts/permissions
-- https://docs.deep.space/guides/testing
-- Installed node_modules/deepspace/dist/schema.d.ts and testing.d.ts
+https://docs.deep.space/guides/testing
+https://docs.deep.space/guides/server-actions.md
+https://docs.deep.space/guides/authentication
+https://docs.deep.space/concepts/permissions
+https://docs.deep.space/concepts/realtime-sync
+https://docs.deep.space/sdk-reference/worker/schemas
+Installed SDK 0.44.2 index.d.ts/worker.d.ts/schema.d.ts and record/client implementations.

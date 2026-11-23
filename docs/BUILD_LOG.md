@@ -262,3 +262,56 @@ The alternate-port all-suite command exited 0: 3 unit tests passed in 2 files; 8
 
 An initial documentation patch could not match the BOM-prefixed heading and made no changes. Documentation was then appended using explicit UTF-8. Also repaired two previously garbled em dashes in this historical log without changing their meaning.
 
+
+## November 23, 2026 - Task 4: first persistent incident
+
+### Outcome and access decision
+
+Created the requested two native test accounts, Participant A and Participant B, using unique @deepspace.test addresses. Passwords were generated in memory with Node crypto.randomBytes and passed only to the installed CLI's documented --password-stdin through a child-process stdin pipe. CLI output was parsed and reduced to nonsecret status fields. No password was placed in argv, source, logs, chat or Git. The CLI stores credentials in its own local store. list --usable confirmed both accounts.
+
+The private incident workspace authorizes exactly Agam's verified user ID and Participant A's verified user ID. Participant B remains a signed-in negative control. Identifiers are not credentials. Existing member role alone grants no incident access. Source authority remains unclaimed; no remote or deployment was created.
+
+### Implementation and significant files
+
+- src/lib/incident-access.ts: explicit two-person allowlist; canAccessIncidents returns a boolean for a verified user ID.
+- src/lib/incidents.ts: strict Zod input validation and shared Incident type. Rejects title under 5/over 120 after trimming, blank service, oversized description, invalid severity, non-open status and any extra metadata/ACL keys.
+- src/schemas/incidents-schema.ts: native typed record collection, collaborator reads, all direct client create/update/delete denied, including admin.
+- src/schemas.ts: registers incidents without changing starter collections.
+- src/actions/index.ts: createIncident verifies authorization and input before privileged tools.create. Server chooses open and participantIds; platform supplies recordId, createdBy, createdAt and updatedAt. Uses the scaffold's existing verified JWT route and action tools; no infrastructure replaced.
+- src/pages/(app)/(protected)/incidents.tsx: simple form/list, auth gate via existing layout, query subscription, success/error/loading/empty states. Awaits successful action result before announcing Saved. createConfirmed is not appropriate for the intentionally denied direct-write path; server action is the documented business-validation mechanism.
+- src/nav.ts: Incidents navigation link.
+- src/lib/incidents.test.ts: boundary/normalization/allowlist unit tests.
+- tests/helpers/incidents.ts: token stays inside browser; helper POSTs real action requests and sends native SDK clientBuild protocol messages for read/write denial checks.
+- tests/api.spec.ts: direct server validation, unauthorized signed-in and signed-out action/read denial, direct record-write bypass denial.
+- tests/smoke.spec.ts: real form creation, reload/same ID, open status, creator and timestamps, captured console errors.
+- docs/LEARNING_NOTES.md: actual flow, implementation explanations, limits, manual steps and five interview questions.
+
+### Commands, failures and recovery
+
+Inspected AGENTS.md, existing docs, action routes, schemas, auth/record routing, nav and installed SDK definitions/implementations. Consulted current official testing, authentication, schema, real-time and server-action docs. The web reader failed on server-action URLs; direct official Markdown fetch succeeded.
+
+Commands: test accounts create --help; test accounts list --usable; auth whoami --json; app source --json; npx.cmd deepspace test run all --port 5180; npm.cmd run type-check; npm.cmd run lint; npm.cmd run build; read-only Git diff/status/log and secret-exclusion review. Account creation invoked node_modules/deepspace/dist/cli.js through node with --password-stdin. No package installation or upgrade was needed.
+
+Initial sandbox account/auth queries returned network_error; approved network-enabled checks succeeded. First full starter attempt passed 3 unit tests but failed webServer readiness: GET /api/auth/ok internal error reference rcur5lcerhv74gn43gof30cl, then Timed out waiting 60000ms from config.webServer. Public auth health returned 200. Unchanged retry passed all 3 unit and 11 browser tests, including the formerly skipped authenticated cases.
+
+Initial implementation type-check failed because useAuth returns userId, not user; corrected to the installed signature. First feature suite startup timed out before browser execution. Subsequent run passed all 11 starter browser tests but failed five new cases: one was interrupted by Vite reoptimization for Zod; four timed out because the test helper incorrectly awaited an auth frame that RecordRoom does not send. Corrected helper to send on socket open as installed SDK does, and separated browser access checks from server-only Zod initialization. No test assertions or platform validation were removed.
+
+### Final test evidence
+
+- npm.cmd run type-check: exit 0 after correction.
+- npm.cmd run lint: exit 0, no diagnostics.
+- npx.cmd deepspace test run all --port 5180: exit 0; 17 unit tests in 3 files passed; 16 browser/API tests passed; zero skipped and zero failed in final run.
+- Browser persistence test entered actual form data, waited for server success and subscribed row, captured recordId, reloaded and found the same ID. It queried actual records and confirmed creator equals Participant A, valid platform timestamps, and status open.
+- API validation loop actually POSTed empty, short and oversized titles, invalid severity, resolved initial status, creator spoofing, ACL spoofing, oversized description and blank service; each returned validation_failed.
+- B action returned forbidden and native query returned no records. Signed-out action returned HTTP 401 and native query returned no records. Authorized direct native record write returned success:false.
+- Production build passed before the final module separation; final build result recorded below.
+
+### Limitations and manual review
+
+No transitions, recovery actions, timeline, polished dashboard, deployment or organization-management system. Local __test- records are retained: no deletion endpoint or widened permissions were introduced just for cleanup. The two-person policy is static and stored read grants are copied into each record; future membership changes must reconcile old ACLs, not just edit the allowlist. Local SQLite persistence is verified; production persistence is not yet exercised. Existing port 5173 was not killed; browser verification used a test-owned server on 5180. Restart your own development process if it predates the schema change before manual testing.
+
+Manual check: start official dev runtime, open /incidents, sign in as Agam, create a valid incident, wait for Saved, refresh, and verify the same incident remains. Invalid fields should be rejected; server tests independently cover malicious requests. Next recommended step after review: a separately scoped status-transition operation and tests. No further features started.
+
+### Final build and commit review
+
+Final production build after the module separation exited 0 and prerendered the landing page. Final TypeScript and lint checks exited 0. Reviewed all source/test changes and documentation, checked diff whitespace, and confirmed .dev.vars, .deepspace, dist and node_modules are Git-ignored. Read-only app source reports source:null, revision:0; git remote -v is empty. The local feature commit will include only the 13 explicitly reviewed source, test and documentation files; no generated state, credentials or dependency changes. The parent commit e657dbe (Setting up the project 1) was already present when Task 4 began and is preserved.

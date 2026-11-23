@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { captureConsoleErrors } from './helpers/errors'
+import { test as authenticatedTest } from 'deepspace/testing'
+import { readIncidents } from './helpers/incidents'
 
 /**
  * Smoke tests covering both page kinds this template ships:
@@ -16,6 +18,33 @@ import { captureConsoleErrors } from './helpers/errors'
 async function waitForApp(page: import('@playwright/test').Page) {
   await page.waitForSelector('[data-testid="app-root"]', { timeout: 15000 })
 }
+
+authenticatedTest('incident creation persists across refresh with server metadata', async ({ users }) => {
+  const [a] = await users(['Participant A'])
+  const errors = captureConsoleErrors(a.page)
+  const title = `__test-${Date.now()}__ API recovery`
+  await a.page.goto('/incidents')
+  await a.page.getByLabel('Title', { exact: true }).fill(title)
+  await a.page.getByLabel('Service', { exact: true }).fill('Payments API')
+  await a.page.getByLabel('Severity', { exact: true }).selectOption('sev1')
+  await a.page.getByLabel('Description (optional)').fill('Investigate failed requests')
+  await a.page.getByRole('button', { name: 'Create Incident', exact: true }).click()
+  await expect(a.page.getByRole('status')).toHaveText('Incident saved.')
+  const row = a.page.getByTestId('incident').filter({ hasText: title })
+  await expect(row).toContainText('sev1 · open')
+  const id = await row.getAttribute('data-record-id')
+  await a.page.reload()
+  await expect(row).toBeVisible()
+  await expect(row).toHaveAttribute('data-record-id', id!)
+  const snapshot = await readIncidents(a.page)
+  const records = snapshot.records as Array<{ recordId: string; createdBy: string; createdAt: string; updatedAt: string; data: { title: string; status: string } }>
+  const record = records.find((record) => record.recordId === id)!
+  expect(record.createdBy).toBe(a.userId)
+  expect(Number.isNaN(Date.parse(record.createdAt))).toBe(false)
+  expect(Number.isNaN(Date.parse(record.updatedAt))).toBe(false)
+  expect(record.data.status).toBe('open')
+  expect(errors).toEqual([])
+})
 
 test.describe('Smoke tests', () => {
   test('static landing loads without JS errors', async ({ page }) => {
