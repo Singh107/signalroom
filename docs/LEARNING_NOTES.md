@@ -111,3 +111,51 @@ Start a current official local runtime, sign in as Agam, open /incidents, create
 5. Why do serialized writes not make get → check → update atomic, and what would fix that?
 
 Additional references: https://docs.deep.space/guides/server-actions.md, https://docs.deep.space/sdk-reference/worker/schemas.md, https://docs.deep.space/concepts/permissions.md, https://docs.deep.space/concepts/realtime-sync.md. Verified against installed SDK types and implementation rather than inferring atomicity from general documentation wording.
+
+## Task 6 — Recovery actions (November 23, 2026)
+
+### Bounded atomicity investigation
+
+Rechecked current official server-action, schema and real-time documentation, SDK 0.44.2 ActionTools types, and the scaffold's tools factory. The supported record update signature is still update(collection, recordId, patch). There is no expected-version/expected-state argument, compare-and-swap method or exposed record transaction in that interface. The guide's introductory mention of atomic orchestration does not supply an API that makes this scaffold's separate requests atomic. No documented small replacement was found, so lifecycle transitions remain unchanged. Concurrent lifecycle requests can validate stale state and overwrite an intervening move. No custom database, backend, undocumented method or process-local locking was introduced.
+
+### One incident has many recovery records
+
+The new native recoveryActions collection stores incidentId, description, status (pending or complete), completedAt, and server-selected participantIds. Its record envelope supplies recordId, createdBy, createdAt and updatedAt. A required immutable incidentId points to exactly one incident. Reference interpretation supplies relationship metadata; the action explicitly checks that the parent exists rather than assuming it is a database foreign key.
+
+A separate collection lets each checklist item be created and completed independently. Storing an array inside an incident would require replacing the array and risk overwriting another person's item. Recovery operations never update the incident, so its status, resolution timestamp, creator and other fields remain untouched. No assignees, deletion, reparenting, editing or reopening of recovery items are implemented.
+
+### Server functions and access
+
+addRecoveryAction checks the existing participant predicate before any privileged record access. Its strict Zod input allows only incidentId and a description trimmed to 3–200 characters. It loads the parent, then creates pending state and collaborator grants chosen by the server. No client record ID, creator, creation time, completion state or timestamp is accepted.
+
+completeRecoveryAction accepts only actionId. After authorization it loads the item and its stored parent, refuses failed lookups, returns success without writing if already complete, rejects unknown stored states, and otherwise patches only status:complete. Completion cannot move the item to a caller-specified incident. The RecordRoom text timestampTrigger stamps completedAt when status first changes to complete. The creator/creation time and parent remain unchanged.
+
+The collection uses the same guarded collaborator read policy as incidents and denies native create/update/delete for all roles. Filtering a query by incidentId is for correct checklist membership, not authorization. Both supported identities share all incidents; the native record permissions still enforce who receives data. The Task 5 membership-change safeguard also applies to recovery reads/actions. Future revocation migration must reconcile recovery participantIds and creator grants as well as incidents, while preserving historical metadata.
+
+### Completion and concurrency
+
+Completion is idempotent in its business meaning: calling it again leaves the item complete with the original completedAt. Sequential duplicates return success without writing. If two callers both read pending, both may submit the same complete patch. Installed SDK putRecord synchronously loads the latest row and triggers the timestamp only when old status differs from new status. Thus the second identical patch preserves completedAt; updatedAt may change for a competing write. This is not an exactly-once execution guarantee or an atomic multi-record transaction. The simultaneous-request test exercises competing calls but does not force every possible scheduling interleaving.
+
+Parent lookup plus child creation is also two calls. There is currently no parent-delete operation and native incident deletes are denied. If deletion is later introduced, orphan prevention/cascades need a separate consistency design. Retrying an uncertain ADD request can create another item because creation has no idempotency key; only completion is idempotent.
+
+### UI, queries and updates
+
+RecoveryChecklist uses useQuery('recoveryActions', { where: { incidentId }, orderBy: 'createdAt', orderDir: 'asc' }) for each incident. It renders loading, empty and error states plus the subscribed items. Its add handler gathers the form, calls the server, reports success/failure and clears the form only after success. callRecoveryAction obtains the token, POSTs the action and checks both HTTP status and success:true. RecoveryItem's complete handler disables its button while pending and reports failures. Completed text/time comes from the persisted subscription, not optimistic local status. One subscription per displayed incident is sufficient for this small slice; large lists would need a separate pagination/query review.
+
+The browser test opens two separate authenticated browser contexts using Participant A's existing session state in memory. Session A adds an item and session B observes it without navigation or refresh; B completes it and A observes completion without refresh. Both then refresh and retain the same action ID/state. This proves cross-session sync for one authorized identity, not collaboration between two different allowed identities. Participant B remains a separate unauthorized negative-control identity.
+
+### Manual verification
+
+1. Restart a current official local runtime with npx.cmd deepspace dev start; open /incidents and sign in as Agam.
+2. Create two incidents. Under one, enter a recovery description such as Restart payment worker and click Add recovery action. Wait for Recovery action saved.
+3. Confirm the item appears only under that incident. Click Mark complete and check the Completed timestamp; refresh and verify it remains.
+4. Open another signed-in browser session before adding/completing another item. Check that changes appear there without refresh. Automated evidence uses two contexts of Participant A, as described above.
+5. A signed-out visitor should see the sign-in gate; a signed-in nonparticipant should be denied. Server/API tests cover forged fields, nonexistent parents and native-write attempts that HTML controls alone cannot prevent.
+
+### Five interview questions
+
+1. Why use a separate collection rather than an array on the incident?
+2. Why does a reference column still need an explicit parent-existence check?
+3. What does idempotent completion mean, and how is it different from exactly-once execution?
+4. Why is filtering by incidentId not an authorization boundary?
+5. Which concurrency guarantees hold for one record write, and which fail across get → validate → update?

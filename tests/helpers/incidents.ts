@@ -11,7 +11,7 @@ export async function postIncident(page: Page, data: Record<string, unknown>) {
   return postIncidentAction(page, 'createIncident', data)
 }
 
-export async function postIncidentAction(page: Page, name: 'createIncident' | 'transitionIncident', data: Record<string, unknown>) {
+export async function postIncidentAction(page: Page, name: 'createIncident' | 'transitionIncident' | 'addRecoveryAction' | 'completeRecoveryAction', data: Record<string, unknown>) {
   return page.evaluate(async ({ name, input }) => {
     const auth = await fetch('/api/auth/token', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
     const session = await auth.json()

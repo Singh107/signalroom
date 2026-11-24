@@ -4,6 +4,7 @@ import type { Incident } from '../../../lib/incidents'
 import { canAccessIncidents } from '../../../lib/incident-access'
 import { nextIncidentStatus, type IncidentStatus } from '../../../lib/incident-lifecycle'
 import { Button, Input, Label, Textarea } from '../../../components/ui'
+import { RecoveryChecklist } from '../../../components/recovery-checklist'
 
 export default function IncidentsPage() {
   const { userId } = useAuth()
@@ -68,6 +69,7 @@ function IncidentWorkspace() {
       <p className="text-sm">Creator: {record.createdBy}</p>
       {record.data.resolvedAt && <p className="text-sm">Resolved: {record.data.resolvedAt}</p>}
       <IncidentLifecycle recordId={record.recordId} status={record.data.status} />
+      <RecoveryChecklist incidentId={record.recordId} />
     </li>)}</ul>
   </section>
 }

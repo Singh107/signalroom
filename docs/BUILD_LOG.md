@@ -374,3 +374,51 @@ No unrelated server was killed. Test-owned server stopped with the runner. Local
 Read-only git remote -v is empty. DeepSpace app source reports registered:true, source:null, revision:0. Status reports branch master and live:null. Its sourceInference:deepspace is only a default inference, not an authority claim. No push, deployment, remote creation, branch change or authority claim occurred. Reviewed the 12-file change for one focused local commit after passing checks; parent remains 8c750b1. The resulting commit ID is reported in the task response.
 
 Task 5 stops with lifecycle controls and tests. No recovery actions, timeline or polished dashboard were implemented. Membership migration and atomic concurrent transitions remain explicit limitations requiring their own reviewed work.
+
+## November 23, 2026 — Task 6: bounded concurrency review and recovery actions
+
+### Baseline and investigation
+
+Started from clean master at 7c5b76b. Read PRD, BUILD_LOG, LEARNING_NOTES, AGENTS.md and relevant source/routes/types before editing. Existing CLI authentication confirmed Agam Singh (agamsingh3001@gmail.com). SDK remains pinned at 0.44.2; no dependencies or infrastructure replaced.
+
+Bounded investigation consulted https://docs.deep.space/llms.txt, https://docs.deep.space/guides/server-actions.md, https://docs.deep.space/sdk-reference/worker/schemas.md and https://docs.deep.space/concepts/realtime-sync.md; inspected installed ActionTools declarations, timestamp/write implementation, and the scaffold tools factory. Web-tool fetches of server-actions/schemas failed; direct official Markdown fetches succeeded. ActionTools exposes get and update(collection, recordId, patch), with no expected-state/version argument or record transaction. The guide's general atomic-orchestration wording does not establish atomicity for separate scaffold requests. No supported small conditional-update solution was found; retained lifecycle behavior and documented the stale-read/intervening-write race. No custom backend, database, undocumented method or local mutex was introduced.
+
+### Model, operations and changed files
+
+- src/lib/recovery-actions.ts (new): strict creation/completion input schemas and RecoveryAction type. Description is trimmed and must contain 3–200 characters; IDs are bounded strings. Unexpected fields are rejected.
+- src/schemas/recovery-actions-schema.ts (new): native recoveryActions collection; required immutable incidentId reference, description, pending/complete status, ISO completedAt trigger and server-controlled participantIds. Creator/creation/update timestamps use the record envelope. Every native mutation is denied for every role; reads use the existing membership safeguard.
+- src/schemas.ts: registers the new collection for both Worker and client.
+- src/actions/recovery-actions.ts (new): addRecoveryAction authorizes, validates, checks parent existence and creates pending data. completeRecoveryAction authorizes, validates, loads item and stored parent, returns success without a write for sequential duplicates, and otherwise patches only status. No incident fields are changed.
+- src/actions/index.ts: registers both actions in the existing authenticated dispatch map; existing lifecycle logic unchanged.
+- src/components/recovery-checklist.tsx (new): per-incident subscription filtered by incidentId, loading/empty/error states, creation form, completion button, pending states and persisted completion indicator.
+- src/pages/(app)/(protected)/incidents.tsx: mounts a checklist for each displayed incident.
+- src/actions/recovery-actions.test.ts (new): 32 unit cases covering boundaries, malformed/spoofed fields, authorization ordering, parent/item failures, completion/duplicates, narrow update patches and native permission policy.
+- tests/helpers/incidents.ts: extends the existing typed authenticated helper to the two new action names.
+- tests/recovery-actions.spec.ts (new): seven browser/API cases covering persistence/realtime/isolation, validation, missing IDs, unauthorized access, direct-write/reparenting bypass, competing/duplicate completion, and pending/server-error UI.
+- docs/LEARNING_NOTES.md and docs/BUILD_LOG.md: model, function explanations, access/query behavior, concurrency findings, evidence and manual review instructions.
+
+A dedicated collection avoids replacing an incident's whole checklist array and allows independent record updates/subscriptions. A reference column is not assumed to enforce foreign keys; the server verifies parents explicitly. Both participants share the workspace. Query filtering isolates checklist membership, while native RBAC determines whether records may be delivered. The Task 5 revocation procedure now explicitly includes recovery records and their creator grants.
+
+### Verification
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| npm.cmd run type-check | 0 | Passed |
+| npm.cmd run lint | 0 | No diagnostics |
+| npm.cmd run build | 0 | Worker/client bundles built; landing prerendered |
+| npx.cmd deepspace test run all --port 5180 | 0 | 74 unit tests in 5 files passed; 30 browser/API tests passed; 0 failed, 0 skipped |
+| git diff --check | 0 | No whitespace errors |
+
+All requested checks passed on their first execution in Task 6. All prior 42 unit and 23 browser/API tests remained, with assertions unchanged. New coverage adds 32 unit and seven browser/API tests. No test validation was bypassed. Nonblocking tooling notices concerned color environment variables and plugin timings; Git noted normal LF-to-CRLF conversion. Build ran with approved access to Wrangler's log directory, avoiding the Task 5 sandbox log error.
+
+The official test runner owned http://127.0.0.1:5180 and stopped its server afterward; no unrelated server was killed. Two separate browser contexts for the SAME authorized Participant A identity demonstrated live creation A→B and completion B→A without refreshing. Both subsequently reloaded and retained the same completed action ID. Native reads confirmed creator/createdAt preservation and a valid completedAt. The parent incident's entire record matched its pre-operation snapshot. A second incident remained empty in both UI and query results. Console/page-error captures for this flow were empty. This is cross-session evidence, not a claim of two different authorized identities tested.
+
+Malformed/spoofed requests were rejected; missing parent/action returned Record not found. Participant B received forbidden, signed-out action requests received HTTP 401, and both unauthorized native queries returned no recovery records. Direct native creation, completion and reparenting returned success:false and left records unchanged. Competing completion requests both succeeded; the later sequential duplicate preserved the entire completed record. The pending-form test held a request, verified Adding… was disabled, then delivered invalid data to the actual server and observed its validation error.
+
+### Limits and stopping point
+
+Completion is logically idempotent, not exactly-once execution. SDK putRecord checks the latest status during each write and only stamps completedAt on the pending→complete change. A competing identical patch may still advance updatedAt. The competing-request test does not force every possible interleaving. Incident lifecycle get→validate→update remains non-atomic. Parent existence check plus child creation is not one transaction; current native incident deletes are denied and no delete action exists. Future deletion needs orphan/cascade handling. Retrying an uncertain create can add a duplicate item; no create idempotency key is implemented.
+
+One checklist subscription per displayed incident suits the current small interface; no large-list pagination design was added. Existing participant-baseline restrictions remain. Local persistence is verified; production is not. Test records remain locally under test incidents. No assignees, timeline, dashboard redesign, deployment or other product features were added. Suggested next reviewed step: design the activity-timeline consistency contract before implementing it, with the unresolved atomicity constraints explicit.
+
+Read-only app source remains registered:true, source:null, revision:0. Status reports master and live:null; sourceInference:deepspace is an inference, not a claim. Git has no remote. Reviewed the 12-file change, confirmed generated/credential state remains ignored and untracked, and prepared one focused local commit after passing tests; parent is 7c5b76b. Final commit ID is reported in the task response. No deepspace push, deployment, remote creation or source-authority claim occurred.

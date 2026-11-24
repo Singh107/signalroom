@@ -3,6 +3,7 @@ import type { Env } from '../../worker'
 import { incidentInput, incidentTransitionInput, type Incident } from '../lib/incidents'
 import { canTransitionIncident } from '../lib/incident-lifecycle'
 import { canAccessIncidents, INCIDENT_PARTICIPANTS } from '../lib/incident-access'
+import { addRecoveryAction, completeRecoveryAction } from './recovery-actions'
 
 export const createIncident: ActionHandler<Env> = async ({ userId, params, tools }) => {
   if (!canAccessIncidents(userId)) {
@@ -37,4 +38,4 @@ export const transitionIncident: ActionHandler<Env> = async ({ userId, params, t
   return tools.update<Incident>('incidents', incidentId, status === 'resolved' ? { status } : { status, resolvedAt: null })
 }
 
-export const actions: Record<string, ActionHandler<Env>> = { createIncident, transitionIncident }
+export const actions: Record<string, ActionHandler<Env>> = { createIncident, transitionIncident, addRecoveryAction, completeRecoveryAction }
