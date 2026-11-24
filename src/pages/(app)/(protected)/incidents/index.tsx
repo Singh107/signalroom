@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { getAuthToken, useAuth, useQuery } from 'deepspace'
-import type { Incident } from '../../../lib/incidents'
-import { canAccessIncidents } from '../../../lib/incident-access'
-import { nextIncidentStatus, type IncidentStatus } from '../../../lib/incident-lifecycle'
-import { Button, Input, Label, Textarea } from '../../../components/ui'
-import { RecoveryChecklist } from '../../../components/recovery-checklist'
+import type { Incident } from '../../../../lib/incidents'
+import { canAccessIncidents } from '../../../../lib/incident-access'
+import { IncidentLifecycle } from '../../../../components/incident-lifecycle'
+import { Link } from 'react-router-dom'
+import { Button, Input, Label, Textarea } from '../../../../components/ui'
+import { RecoveryChecklist } from '../../../../components/recovery-checklist'
 
 export default function IncidentsPage() {
   const { userId } = useAuth()
@@ -63,6 +64,7 @@ function IncidentWorkspace() {
     {status === 'ready' && records.length === 0 && <p>No incidents yet.</p>}
     <ul className="space-y-3">{records.map((record) => <li key={record.recordId} data-testid="incident" data-record-id={record.recordId} className="rounded border p-4">
       <h2 className="font-semibold">{record.data.title}</h2>
+      <Link to={`/incidents/${encodeURIComponent(record.recordId)}`} className="underline">View incident</Link>
       <p>{record.data.service} · {record.data.severity} · {record.data.status}</p>
       <p className="whitespace-pre-wrap">{record.data.description}</p>
       <p className="text-sm">Created: {record.createdAt} · Updated: {record.updatedAt}</p>
@@ -72,39 +74,4 @@ function IncidentWorkspace() {
       <RecoveryChecklist incidentId={record.recordId} />
     </li>)}</ul>
   </section>
-}
-
-function IncidentLifecycle({ recordId, status }: { recordId: string; status: IncidentStatus }) {
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState('')
-  const next = nextIncidentStatus(status)
-
-  async function transition() {
-    if (!next || pending) return
-    setPending(true)
-    setError('')
-    try {
-      const token = await getAuthToken()
-      if (!token) throw new Error('Please sign in again.')
-      const response = await fetch('/api/actions/transitionIncident', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ incidentId: recordId, status: next }),
-      })
-      const result = await response.json() as { success?: boolean; error?: string }
-      if (!response.ok || !result.success) throw new Error(result.error || 'Could not change status.')
-      // No optimistic status: useQuery receives the DO's persisted record update.
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not change status.')
-    } finally {
-      setPending(false)
-    }
-  }
-
-  return <div className="mt-3 space-y-2">
-    {next && <Button type="button" disabled={pending} onClick={transition}>
-      {pending ? 'Updating…' : status === 'resolved' ? 'Reopen investigation' : next === 'resolved' ? 'Resolve incident' : 'Start investigating'}
-    </Button>}
-    {error && <p role="alert">{error}</p>}
-  </div>
 }

@@ -159,3 +159,56 @@ The browser test opens two separate authenticated browser contexts using Partici
 3. What does idempotent completion mean, and how is it different from exactly-once execution?
 4. Why is filtering by incidentId not an authorization boundary?
 5. Which concurrency guarantees hold for one record write, and which fail across get → validate → update?
+
+## Task 7 — Participant updates and incident detail (November 24, 2026)
+
+### Consistency contract: updates are independent records
+
+This task deliberately implements the permitted user-authored-update fallback. Automatic incident-created, status-changed, recovery-added and recovery-completed events are NOT recorded. We do not reconstruct historical events from current state, attribute old transitions to a guessed actor, or call this a complete audit log. The UI says that automatic history is not recorded yet.
+
+Official record/subscription docs and installed SDK 0.44.2 support a native activity collection and create/get/query operations. The action-tools signature still exposes no atomic transaction joining a business mutation and an event write. A best-effort second write could be lost after the business operation commits; a process crash can also occur between writes. Reversing the writes could record an event for an operation that later fails. No durable outbox or exactly-once claim is invented. Existing incident and recovery handlers do not call the timeline handler, so timeline failure cannot turn a committed lifecycle/recovery operation into a reported failure.
+
+Posting a user update has only one write, to incidentActivity, after a read that verifies the parent. Its result describes that write, not a second business operation. A lost network response can still leave the caller unsure whether it committed; retrying may create a duplicate. This is not exactly-once posting. The existing lifecycle race and parent-read/child-create gap remain. No parent-delete action exists; any future deletion feature must address references/orphans.
+
+### Model and trust
+
+incidentActivity stores one required immutable incidentId, eventType:user_update, message, and server-selected participantIds. The explicit single supported category avoids pretending other event types exist. Message and eventType are immutable, and no edit/delete action exists. The record envelope supplies createdBy (verified caller) and createdAt (RecordRoom clock); there are no duplicate actor/timestamp fields that the browser can forge.
+
+incidentUpdateInput permits only incidentId and message. It trims the message and requires 1–1000 characters. The bounded ID format matches existing operations. strict() refuses actor, timestamps, event types, record IDs and participant grants from the client. postIncidentUpdate checks canAccessIncidents before reading, parses input, loads the parent, and returns tools.create('incidentActivity', ...) directly. Lookup/write failures remain failures and never mutate an incident or recovery item.
+
+Native activity reads use the same guarded collaborator policy. All roles, including admin, are denied native create/update/delete. This is an append-only application interface, not tamper-proof storage against a trusted server operator. Future membership migrations must include activity collaborator AND creator grants alongside incident/recovery grants; changing only the baseline is still unsafe. Both current participants share the whole workspace. A where filter is not a replacement for authorization.
+
+### Detail route and functions
+
+Generouted discovers src/pages/(app)/(protected)/incidents/[incidentId].tsx as /incidents/:incidentId. The list moved from incidents.tsx to incidents/index.tsx so it is an index sibling, not an implicit parent that hides the detail page. The existing protected layout supplies the sign-in gate. IncidentDetailPage uses the same participant predicate, reads the route parameter, and mounts IncidentDetail keyed by that ID so form state is not reused when changing incidents. IncidentDetail subscribes to incidents with where:{recordId:incidentId}; it shows loading/error/not-found states and mounts child controls only for a returned record. The list retains its creation form and controls, adding a View incident link.
+
+IncidentLifecycle and its transition handler were extracted unchanged into a shared component; both views use it. RecoveryChecklist is reused unchanged. There is no second business-rule or authorization implementation for the detail page.
+
+IncidentTimeline subscribes to incidentActivity with where:{incidentId}, orderBy:createdAt, orderDir:asc. It sorts equal timestamps by recordId for stable display across refresh; that tie-breaker is not causal order. Older timestamps display first. Each item shows its literal message, verified creator ID and an ISO server time. It provides loading, empty, error, pending and success states. Its post handler obtains getAuthToken, sends incidentId/message, checks HTTP and success:true, then clears the form. Failed requests retain the draft. React displays messages as text, not HTML.
+
+### Browser → server → storage → subscription
+
+The user posts from the detail form. The existing action route verifies the bearer token and supplies its userId. The action authorizes and validates before writing. RecordRoom persists the native event and stamps metadata. Authorized matching subscribers receive a record update; useQuery updates React. No optimistic local event is inserted. The persisted broadcast may arrive before the HTTP acknowledgement, but it represents a stored event. Reload obtains a fresh snapshot from persistent local storage.
+
+Realtime verification uses two separate browser contexts of Participant A, not two distinct authorized identities. A posts and B sees it without refresh; B posts and A sees both in order. Both reload and retain the same event IDs. A different incident remains empty. No production verification is implied.
+
+### Manual verification
+
+1. Start a current runtime with npx.cmd deepspace dev start (restart any old process so it loads the new schema/routes).
+2. Sign in as Agam, create an incident at /incidents, and click View incident. The address should be /incidents/<recordId>.
+3. Check title/service/severity/status, lifecycle control and recovery checklist. Post an update, wait for Update posted, and verify its creator ID/time in the timeline. Reload and find it again.
+4. Open the same incident in another signed-in browser context. Post another update and observe it in the first without refresh. Check another incident has no copy of these updates.
+5. Empty/whitespace or oversized messages should be rejected. Nonparticipants must be denied; signed-out visitors see the sign-in gate. An unknown incident shows Incident not found and no update form.
+6. Lifecycle and checklist controls still work, but deliberately do not add automatic timeline entries. Those event categories remain a documented MVP gap pending a reliable consistency design.
+
+### Interview questions
+
+1. Why can a second event write make an operation's reported outcome misleading?
+2. Why are createdBy and createdAt taken from the record envelope?
+3. Why is an incidentId query filter insufficient to protect private activity?
+4. How does a persistent subscription update two browsers and survive refresh?
+5. What is the difference between chronological timestamps, causal ordering and exactly-once delivery?
+
+References: https://docs.deep.space/guides/server-actions.md, https://docs.deep.space/sdk-reference/client/records.md, https://docs.deep.space/concepts/realtime-sync.md, and installed SDK ActionTools/record-envelope definitions and write implementation.
+
+Final Task 7 verification: npm.cmd run type-check, npm.cmd run lint and npm.cmd run build each exited 0. npx.cmd deepspace test run all --port 5180 exited 0 with 96 unit and 37 browser/API tests passed, zero failed and zero skipped. Earlier runs exposed the index-route nesting mistake and a 100 ms loading-state race in an existing test; both were corrected without removing assertions or increasing timeouts. BUILD_LOG records each run and the actual browser evidence.

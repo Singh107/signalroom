@@ -66,6 +66,8 @@ test('API status page renders loading success and error states', async ({ users 
   const [user] = await users(1)
   let shouldFail = false
   let requestCount = 0
+  let releaseCatalog!: () => void
+  const loadingObserved = new Promise<void>((resolve) => { releaseCatalog = resolve })
 
   await user.page.route('**/api/integrations', async (route) => {
     requestCount += 1
@@ -78,7 +80,8 @@ test('API status page renders loading success and error states', async ({ users 
       return
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    // Keep loading observable even when browser scheduling exceeds 100 ms.
+    await loadingObserved
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -87,7 +90,9 @@ test('API status page renders loading success and error states', async ({ users 
   })
 
   await user.page.goto('/api-status')
-  await expect(user.page.getByText('Loading integration catalog...')).toBeVisible()
+  try {
+    await expect(user.page.getByText('Loading integration catalog...')).toBeVisible()
+  } finally { releaseCatalog() }
   await expect(user.page.getByText('Integration catalog ready')).toBeVisible()
   await expect(user.page.getByText('2 integrations available.')).toBeVisible()
 

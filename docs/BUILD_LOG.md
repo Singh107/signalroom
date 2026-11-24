@@ -422,3 +422,61 @@ Completion is logically idempotent, not exactly-once execution. SDK putRecord ch
 One checklist subscription per displayed incident suits the current small interface; no large-list pagination design was added. Existing participant-baseline restrictions remain. Local persistence is verified; production is not. Test records remain locally under test incidents. No assignees, timeline, dashboard redesign, deployment or other product features were added. Suggested next reviewed step: design the activity-timeline consistency contract before implementing it, with the unresolved atomicity constraints explicit.
 
 Read-only app source remains registered:true, source:null, revision:0. Status reports master and live:null; sourceInference:deepspace is an inference, not a claim. Git has no remote. Reviewed the 12-file change, confirmed generated/credential state remains ignored and untracked, and prepared one focused local commit after passing tests; parent is 7c5b76b. Final commit ID is reported in the task response. No deepspace push, deployment, remote creation or source-authority claim occurred.
+
+## November 24, 2026 — Task 7: participant update timeline and incident detail
+
+### Starting state and consistency decision
+
+Started from clean master at 86efd90. Read the Task 7 attachment, AGENTS.md, PRD, build log, learning notes and relevant implementation. Confirmed CLI developer identity Agam Singh (agamsingh3001@gmail.com). SDK remains 0.44.2; no dependency changes.
+
+Consulted official docs index, server actions, client records and realtime sync, plus installed ActionTools, record-envelope and write implementation. Web retrieval failed for some Markdown pages; direct official Markdown requests succeeded. Native records and subscriptions are supported, but no atomic action-tools operation joins a business mutation and an event write. Chose the user-authored-update fallback explicitly allowed by Task 7. Automatic creation/status/recovery events are NOT implemented and existing history is not fabricated. The UI explicitly identifies this limitation. Existing business handlers remain independent of timeline writes, so an event failure cannot make a committed incident/recovery operation report failure. User updates perform one event write after verifying the parent. This does not promise exactly-once delivery or make parent lookup plus event creation transactional.
+
+### Every changed file
+
+- src/lib/incident-activity.ts (new): strict incident ID/message input and IncidentActivity type; message trimmed to 1–1000 characters.
+- src/schemas/incident-activity-schema.ts (new): private native incidentActivity collection, immutable parent/type/message, explicit user_update category, server-selected collaborator grants. Actor/time use platform envelope metadata.
+- src/schemas.ts: registers activity schema for Worker/client.
+- src/actions/incident-activity.ts (new): postIncidentUpdate authorizes before storage access, validates, verifies the parent and returns the independent native create result.
+- src/actions/index.ts: registers the update action; existing mutation handler bodies unchanged.
+- src/components/incident-timeline.tsx (new): filtered native subscription, chronological display with ID tie-breaker, verified actor/time, posting form, loading/empty/pending/error states; failed requests retain draft input.
+- src/components/incident-lifecycle.tsx (new): extracted existing lifecycle component. Compared its body with HEAD and confirmed it is unchanged.
+- src/pages/(app)/(protected)/incidents.tsx → src/pages/(app)/(protected)/incidents/index.tsx: preserved list/create workflow, imported shared lifecycle component and added View incident links. Index routing prevents the list from hiding detail routes.
+- src/pages/(app)/(protected)/incidents/[incidentId].tsx (new): protected incident-specific subscription/detail, loading/error/not-found states, reused lifecycle/recovery controls, timeline and back navigation.
+- src/actions/incident-activity.test.ts (new): 22 unit cases for boundaries, spoofing, authorization ordering, missing parent, write failure, immutable fields and denied native mutations.
+- tests/incident-activity.spec.ts (new): seven browser/API cases for detail and two-context persistence/order/isolation/metadata, server validation, missing parent, unauthorized boundaries, direct native writes, reused controls, and pending/rejected updates.
+- tests/helpers/incidents.ts: allows postIncidentUpdate through the existing authenticated test helper; tokens stay inside browser context.
+- tests/collab.spec.ts: replaced an existing 100 ms mock-response delay with a release barrier after the loading assertion; preserved every existing assertion and timeout.
+- docs/LEARNING_NOTES.md: model, functions, trust, consistency limits, event flow, routing explanation, manual review and interview questions.
+- docs/BUILD_LOG.md: this evidence and outcome.
+
+### Tests, failures and corrections
+
+Initial TypeScript, lint and unit checks passed (96 unit tests). First full suite exited 1: 96 unit tests passed; browser/API 30 passed, 7 failed, 0 skipped. Four new detail tests revealed Generouted treated incidents.tsx as the parent route, rendering the list at detail URLs; three existing tests timed out. Moved the list to incidents/index.tsx and adjusted relative imports, preserving assertions and runtime behavior at /incidents. Also removed an extra EOF blank line found by diff --check. A read command for a bracketed path needed PowerShell -LiteralPath; corrected the inspection command.
+
+Second full suite exited 1: 96 unit tests passed; browser/API 36 passed, 1 failed, 0 skipped. All new detail/timeline tests and prior timeout cases passed. The remaining existing API-status test missed its 100 ms loading window; failure snapshot showed the already-loaded success screen. Replaced the fixed delay with an explicit promise released after the unchanged Loading assertion, making the same test deterministic. No timeout, assertion, test count or platform validation was weakened.
+
+Final verification:
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| npm.cmd run type-check | 0 | Passed after final route changes |
+| npm.cmd run lint | 0 | No diagnostics |
+| npm.cmd run build | 0 | Worker/client bundles built, detail route bundled, landing prerendered |
+| npx.cmd deepspace test run all --port 5180 | 0 | 96 unit tests in 6 files and 37 browser/API tests passed; 0 failed, 0 skipped |
+| git diff --check | 0 | No whitespace errors after correction |
+
+Final total: 133 passed, 0 failed, 0 skipped. All prior 74 unit and 30 browser/API tests remain. The build used approved access to Wrangler's normal log directory. Nonblocking color-environment/plugin-timing and Git LF/CRLF notices remain tooling output.
+
+### Actual browser/API evidence
+
+Tests followed a View incident link to /incidents/<recordId>, verified detail content, posted a trimmed update in context A, observed it live in B, posted a second update in B and observed both ordered in A without refresh. Both contexts then refreshed and retained the same event IDs/order. Both contexts used Participant A's existing authenticated session in separate browser contexts, not two different identities. Native reads confirmed createdBy matches the authenticated user, createdAt is a valid platform timestamp and eventType is user_update. The parent record remained unchanged and a second incident had no activity. Console/page-error captures for the flow were empty.
+
+API tests accepted 1/1000-character messages and rejected empty/whitespace/1001-character messages and forged actor/time/type/grant fields. Missing incident lookup failed and detail showed Incident not found without an update form. Participant B was forbidden, signed-out requests received HTTP 401, and both unauthorized native reads returned no events. Native create/update bypasses returned success:false and preserved the original event. A held posting request showed disabled Posting…; a real server validation rejection displayed the error and retained the draft. Detail lifecycle and recovery controls worked and deliberately created no automatic events.
+
+The official runner owned http://127.0.0.1:5180 and stopped its server afterward. No unrelated server was killed. Generated router files, build output, local credentials and test artifacts remain ignored/untracked. Local test records remain; no deletion/debug bypass was added.
+
+### Remaining limitations and Git
+
+The timeline contains participant updates only; automatic incident/status/recovery history remains an explicit MVP gap. Lost responses may cause duplicate user updates if retried; no idempotency key, outbox or exactly-once guarantee exists. Equal timestamps are ordered by record ID, not claimed causal sequence. Lifecycle races, future parent-deletion consistency and membership-migration restrictions remain as documented. Activity grant/creator access must be included in any future revocation migration. Production persistence is not verified; no pagination or polished dashboard was added.
+
+Read-only source/status still reports source:null, revision:0, registered:true, live:null, master and no Git remote. Reviewed the complete diff and prepared one focused local commit with parent 86efd90 after checks passed; resulting hash is reported in the response. No deployment, deepspace push, remote creation or source-authority claim occurred. Stop after this task; next review should explicitly decide the remaining automatic-history consistency contract before claiming a complete audit timeline.
