@@ -11,23 +11,23 @@ export async function postIncident(page: Page, data: Record<string, unknown>) {
   return postIncidentAction(page, 'createIncident', data)
 }
 
-export async function postIncidentAction(page: Page, name: 'createIncident' | 'transitionIncident' | 'addRecoveryAction' | 'completeRecoveryAction' | 'postIncidentUpdate', data: Record<string, unknown>) {
-  return page.evaluate(async ({ name, input }) => {
+export async function postIncidentAction(page: Page, name: 'createIncident' | 'transitionIncident' | 'addRecoveryAction' | 'completeRecoveryAction' | 'postIncidentUpdate', data: Record<string, unknown>, demo = false) {
+  return page.evaluate(async ({ name, input, demo }) => {
     const auth = await fetch('/api/auth/token', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
     const session = await auth.json()
-    const response = await fetch(`/api/actions/${name}`, {
+    const response = await fetch(`${demo ? '/api/demo/actions' : '/api/actions'}/${name}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}) },
       body: JSON.stringify(input),
     })
     return { status: response.status, body: await response.json() }
-  }, { name, input: data })
+  }, { name, input: data, demo })
 }
 
-export async function recordRequest(page: Page, message: ClientMessage, expectedType: string) {
-  return page.evaluate(async ({ message, expectedType, appId }) => {
+export async function recordRequest(page: Page, message: ClientMessage, expectedType: string, roomId?: string) {
+  return page.evaluate(async ({ message, expectedType, appId, roomId }) => {
     const auth = await fetch('/api/auth/token', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
     const session = await auth.json()
-    const url = new URL(`/ws/${encodeURIComponent(`app:${appId}`)}`, location.href)
+    const url = new URL(`/ws/${encodeURIComponent(roomId ?? `app:${appId}`)}`, location.href)
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     if (session.token) url.searchParams.set('token', session.token)
     return await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -44,7 +44,7 @@ export async function recordRequest(page: Page, message: ClientMessage, expected
         }
       }
     })
-  }, { message, expectedType, appId })
+  }, { message, expectedType, appId, roomId })
 }
 
 export function readIncidents(page: Page) {

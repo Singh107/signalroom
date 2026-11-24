@@ -1,9 +1,11 @@
+import { useWorkspace } from './workspace-context'
 import { useState } from 'react'
 import { getAuthToken } from 'deepspace'
 import { nextIncidentStatus, type IncidentStatus } from '../lib/incident-lifecycle'
 import { Button } from './ui'
 
 export function IncidentLifecycle({ recordId, status }: { recordId: string; status: IncidentStatus }) {
+  const { actionBase } = useWorkspace()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const next = nextIncidentStatus(status)
@@ -15,7 +17,7 @@ export function IncidentLifecycle({ recordId, status }: { recordId: string; stat
     try {
       const token = await getAuthToken()
       if (!token) throw new Error('Please sign in again.')
-      const response = await fetch('/api/actions/transitionIncident', {
+      const response = await fetch(`${actionBase}/transitionIncident`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ incidentId: recordId, status: next }),

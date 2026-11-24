@@ -1,12 +1,14 @@
+import { useWorkspace } from './workspace-context'
+import { formatIncidentTime } from '../lib/incident-presentation'
 import { useState, type FormEvent } from 'react'
 import { getAuthToken, useQuery } from 'deepspace'
 import type { RecoveryAction } from '../lib/recovery-actions'
 import { Button, Input, Label } from './ui'
 
-async function callRecoveryAction(name: 'addRecoveryAction' | 'completeRecoveryAction', params: Record<string, unknown>) {
+async function callRecoveryAction(actionBase: string, name: 'addRecoveryAction' | 'completeRecoveryAction', params: Record<string, unknown>) {
   const token = await getAuthToken()
   if (!token) throw new Error('Please sign in again.')
-  const response = await fetch(`/api/actions/${name}`, {
+  const response = await fetch(`${actionBase}/${name}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(params),
   })
@@ -16,6 +18,7 @@ async function callRecoveryAction(name: 'addRecoveryAction' | 'completeRecoveryA
 
 export function RecoveryChecklist({ incidentId }: { incidentId: string }) {
   const { records, status, error } = useQuery<RecoveryAction>('recoveryActions', { where: { incidentId }, orderBy: 'createdAt', orderDir: 'asc' })
+  const { actionBase } = useWorkspace()
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [failure, setFailure] = useState('')
@@ -27,7 +30,7 @@ export function RecoveryChecklist({ incidentId }: { incidentId: string }) {
     setFailure('')
     setMessage('')
     try {
-      await callRecoveryAction('addRecoveryAction', { incidentId, description: new FormData(form).get('description') })
+      await callRecoveryAction(actionBase, 'addRecoveryAction', { incidentId, description: new FormData(form).get('description') })
       form.reset()
       setMessage('Recovery action saved.')
     } catch (cause) {
@@ -35,8 +38,10 @@ export function RecoveryChecklist({ incidentId }: { incidentId: string }) {
     } finally { setSaving(false) }
   }
 
-  return <section className="mt-4 space-y-2 border-t pt-3" aria-label="Recovery checklist">
+  return <section className="mt-4 min-w-0 space-y-4 rounded-xl border border-slate-700 bg-slate-900/50 p-4" aria-label="Recovery checklist">
     <h3 className="font-semibold">Recovery checklist</h3>
+    {status === 'ready' && <div><p className="mb-2 text-sm text-slate-300">{records.filter(record => record.data.status === 'complete').length} / {records.length} completed</p>
+      <progress aria-label="Recovery progress" className="h-2 w-full accent-teal-300" value={records.filter(record => record.data.status === 'complete').length} max={Math.max(1, records.length)} /></div>}
     {status === 'loading' && <p>Loading recovery actions…</p>}
     {status === 'error' && <p role="alert">{error}</p>}
     {status === 'ready' && records.length === 0 && <p>No recovery actions yet.</p>}
@@ -52,19 +57,20 @@ export function RecoveryChecklist({ incidentId }: { incidentId: string }) {
 }
 
 function RecoveryItem({ actionId, action }: { actionId: string; action: RecoveryAction }) {
+  const { actionBase } = useWorkspace()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   async function complete() {
     if (pending) return
     setPending(true)
     setError('')
-    try { await callRecoveryAction('completeRecoveryAction', { actionId }) }
+    try { await callRecoveryAction(actionBase, 'completeRecoveryAction', { actionId }) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not complete recovery action.') }
     finally { setPending(false) }
   }
   return <li data-testid="recovery-action" data-action-id={actionId} className="rounded border p-2">
-    <p>{action.description}</p>
-    {action.status === 'complete' ? <p>Completed{action.completedAt ? `: ${action.completedAt}` : ''}</p> :
+    <p className="break-words">{action.description}</p>
+    {action.status === 'complete' ? <p>Completed{action.completedAt ? `: ${formatIncidentTime(action.completedAt)}` : ''}</p> :
       <Button type="button" disabled={pending} onClick={complete}>{pending ? 'Completing…' : 'Mark complete'}</Button>}
     {error && <p role="alert">{error}</p>}
   </li>

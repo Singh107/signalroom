@@ -1,3 +1,4 @@
+import { canEnterRecordRoom } from '../lib/workspace-access'
 /**
  * WebSocket routing for app-owned Durable Objects.
  *
@@ -19,6 +20,7 @@ function jwtConfig(env: Env): JwtVerifierConfig {
 function wsRoute(
   doNamespace: (env: Env) => DurableObjectNamespace,
   extraIdentity?: (auth: VerifyResult, env: Env) => { role?: string } | Promise<{ role?: string }>,
+  recordRoom = false,
 ) {
   return async (c: Context<AppContext>) => {
     const id = c.req.param('roomId') ?? c.req.param('docId') ?? c.req.param('scopeId')
@@ -31,6 +33,7 @@ function wsRoute(
       auth = (await verifyJwt(jwtConfig(c.env), token)).result
       if (!auth) return new Response('Unauthorized', { status: 401 })
     }
+    if (recordRoom && !canEnterRecordRoom(id, c.env.DEEPSPACE_APP_ID, auth?.userId)) return new Response('Forbidden', { status: 403 })
     const roomRequest = authenticatedRoomRequest(
       c.req.raw,
       auth,
@@ -123,7 +126,7 @@ async function resolveDocsYjsRole(
 export function registerRealtimeRoutes(app: Hono<AppContext>): void {
   app.get(
     '/ws/:roomId',
-    wsRoute((env) => env.RECORD_ROOMS),
+    wsRoute((env) => env.RECORD_ROOMS, undefined, true),
   )
 
   app.get('/ws/yjs/:docId', async (c) => {

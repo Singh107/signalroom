@@ -212,3 +212,30 @@ Realtime verification uses two separate browser contexts of Participant A, not t
 References: https://docs.deep.space/guides/server-actions.md, https://docs.deep.space/sdk-reference/client/records.md, https://docs.deep.space/concepts/realtime-sync.md, and installed SDK ActionTools/record-envelope definitions and write implementation.
 
 Final Task 7 verification: npm.cmd run type-check, npm.cmd run lint and npm.cmd run build each exited 0. npx.cmd deepspace test run all --port 5180 exited 0 with 96 unit and 37 browser/API tests passed, zero failed and zero skipped. Earlier runs exposed the index-route nesting mistake and a 100 ms loading-state race in an existing test; both were corrected without removing assertions or increasing timeouts. BUILD_LOG records each run and the actual browser evidence.
+
+
+## November 24, 2026 - Task 8: dashboard and isolated reviewer demo
+
+The dashboard is a view of one authorized `useQuery('incidents')` subscription. `incidentCounts` groups those records by status; filtering selects from that same array. Loading counts show Loading instead of a misleading zero. Buttons expose aria-pressed, and an empty filter explains how to recover. Existing quick lifecycle/recovery controls remain available; detail links use the active workspace route.
+
+`formatIncidentTime` checks invalid/missing values before formatting with an explicit UTC timezone. `ActorNamesProvider` requests the SDK's authorized public identity roster once per page, then `ActorName` consumes that lookup. It never requests unrestricted users records or displays email-shaped names. Mounting the lookup per incident caused excessive roster requests; sharing it removed that load. Status badges include text as well as color. Recovery progress derives from persisted checklist records.
+
+### Reviewer boundary
+
+The user approved a public Singh107/signalroom repository and a minimal self-service isolated demo. The original supplied request/PRD requires an evaluable app and GitHub source; no verified reviewer identity or special internship access mechanism was supplied. Official auth supports Google/GitHub sign-in. Email/password is existing-account sign-in, not public signup. Platform collaborator invitations grant deploy/secrets access and are unsuitable for product reviewers.
+
+The separate `/demo` route reuses the incident UI and existing validation/state machine. Each authenticated identity gets a native RecordRoom named `demo:<appId>:<verifiedUserId>`. `DemoLayout` mounts a nested RecordScope. `useWorkspace` chooses the UI links and action endpoint; this is UI plumbing, not the security boundary. The Worker verifies the caller, chooses demo versus private policy from the registered route, and constructs the room ID itself. No request field can choose the owner, participant grants, or room. Action factories reuse the same operations with a server-selected WorkspaceAccess policy. The demo policy permits only its verified identity and sets participantIds to that identity. Record IDs from another room cannot be loaded by these tools.
+
+`canEnterRecordRoom` validates the exact requested room against the verified user before forwarding a native WebSocket. Foreign and anonymous demo connections fail before touching the DO. Existing native collaborator reads and create/update/delete denials remain unchanged. The private allowlist and frozen baseline were not modified, and no private data was migrated/copied. A future private membership change still needs the documented grant/creator migration; the shared schema's fail-closed baseline would also stop demo reads until deliberately reviewed.
+
+This is an application demo built on documented RecordScope/RecordRoom isolation, not a special platform demo credential. A new reviewer opens the landing page, chooses Try the demo, signs in through Google/GitHub, and creates the prefilled synthetic incident. The sample is a draft until explicitly submitted, avoiding automatic duplicate seed writes. They can transition, add/complete recovery, and post updates. Refresh preserves that user's records. Two tabs or browser sessions of the SAME account can demonstrate realtime changes; different reviewer identities intentionally cannot collaborate with each other. Private-team collaboration remains separate.
+
+### Verification and limits
+
+New tests cover derived counts, safe timestamp/name fallback, exact room authorization, mobile overflow, filters/empty results, demo lifecycle/recovery/timeline persistence, same-user multi-session updates, foreign-room native reads, foreign incident/recovery mutations, forged fields, native update denial and signed-out rejection. All prior tests remain intact. Full results and actual visual/deployment evidence are in BUILD_LOG.
+
+The demo has no quotas, reset/cleanup UI, cross-user invitations or pagination. Use synthetic data only. It does not fix the documented lifecycle read/validate/write race, ambiguous network retries or missing automatic history. Platform Google/GitHub availability is still required. A local passing test is not proof of live OAuth or deployed persistence.
+
+GitHub source is permanent on first accepted deploy reservation, including a deploy whose later phase fails. Verify the registered app, sole selected remote and sourceInference before that command. Ordinary Git pushes publish history; DeepSpace's GitHub deploy uploads the local tree. Therefore push the reviewed commit and deploy a clean tree so those two artifacts agree.
+
+References: https://docs.deep.space/guides/authentication.md, https://docs.deep.space/guides/collaborators, https://docs.deep.space/sdk-reference/client/records, https://docs.deep.space/concepts/data-model.md, https://docs.deep.space/guides/source-control.md, https://docs.deep.space/guides/app-identity, https://docs.deep.space/concepts/deployment.md; installed SDK 0.44.2 types/CLI and useUserLookup/selectGitHubRemote implementations.

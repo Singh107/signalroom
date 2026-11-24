@@ -35,14 +35,15 @@ import {
   splitIntegrationEndpoint,
 } from 'deepspace/worker'
 import type { ActionResult, ActionTools, VerifyResult } from 'deepspace/worker'
-import { actions } from '../actions/index.js'
+import { demoRoomId, demoWorkspace } from '../lib/workspace-access'
+import { actions, createWorkspaceActions } from '../actions/index.js'
 import { integrations } from '../integrations.js'
 import type { AppContext, Env } from '../../worker.js'
 
 type ResolveAuth = (req: Request, env: Env) => Promise<VerifyResult | null>
 
 export function registerActionRoutes(app: Hono<AppContext>, resolveAuth: ResolveAuth): void {
-  app.post('/api/actions/:name', async (c) => {
+  for (const demo of [false, true]) app.post(demo ? '/api/demo/actions/:name' : '/api/actions/:name', async (c) => {
     const auth = await resolveAuth(c.req.raw, c.env)
     if (!auth) return c.json({ error: 'Unauthorized' }, 401)
     // `resolveAuth` may accept a cookie session, which carries no bearer token
@@ -60,17 +61,17 @@ export function registerActionRoutes(app: Hono<AppContext>, resolveAuth: Resolve
     const name = c.req.param('name')
     // Own keys only: `actions[name]` also finds `constructor` (Object), which
     // returns the handler argument, env secrets included, as the response.
-    const action = lookupOwn(actions, name)
+    const action = lookupOwn(demo ? createWorkspaceActions(demoWorkspace(auth.userId)) : actions, name)
     if (!action) return c.json({ error: 'Action not found' }, 404)
     const params = await c.req.json<Record<string, unknown>>()
-    const tools = createActionTools(c.env, auth.userId, callerJwt)
+    const tools = createActionTools(c.env, auth.userId, callerJwt, demo ? demoRoomId(c.env.DEEPSPACE_APP_ID, auth.userId) : `app:${c.env.DEEPSPACE_APP_ID}`)
     const result = await action({ userId: auth.userId, params, tools, env: c.env, callerJwt })
     return c.json(result as unknown as Record<string, unknown>)
   })
 }
 
-function createActionTools(env: Env, userId: string, callerJwt: string): ActionTools {
-  const stub = env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
+function createActionTools(env: Env, userId: string, callerJwt: string, roomId: string): ActionTools {
+  const stub = env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(roomId))
 
   // The DO returns ActionResult<unknown>; callers below supply the precise
   // operation result type fixed by the SDK tools-api wire contract.
