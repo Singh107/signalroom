@@ -242,3 +242,16 @@ References: https://docs.deep.space/guides/authentication.md, https://docs.deep.
 
 
 Task 8 result: 114 unit + 40 browser/API tests passed (154 total, zero failed/skipped), with TypeScript/lint/build exit 0. The first hostname was taken; changing the hostname preserved the app ID and the already-latched GitHub source. Release sequence 1 is live at https://signalroom-singh107.app.space from clean checkout 188d223. The source revision (1), release sequence (1), and Git commit are different identifiers. GitHub-source commitOid is null; do not invent lineage. Browser automation stopped on a URL-policy verification error, so actual production sign-in/create/retrieve remain manual checks, despite the CLI confirming edge/data-plane readiness.
+
+
+## November 24, 2026 - Task 9: evidence and release review
+
+Local tests, production tests and user reports answer different questions. The 154-test local suite validates the implementation broadly; six focused tests against the live HTTPS origin prove the deployed demo's key workflows and boundaries. The SDK test fixture uses real test-account authentication, not Google/GitHub OAuth. The owner's separately reported successful manual production checklist supplies the sign-in/usability evidence. Same-identity realtime updates do not establish collaboration between two distinct private participants; that scenario remains unverified.
+
+The production configuration is opt-in, starts no local server and creates synthetic records in separate test-user demo rooms. Tests keep auth/session handling in the SDK's existing local store; credentials do not belong in specs or screenshots. No cleanup permission was added to make testing convenient.
+
+Git source revision, live release sequence and repository commit are separate facts. Release 1/source revision 1 still serves checkout 188d223. Documentation/screenshots/test configuration changes do not change runtime bytes and do not justify redeployment. A passing deployment alone was insufficient; the production assertions and manual report complete the evidence for the disclosed MVP.
+
+The final README and submission draft distinguish implemented participant updates from the original PRD's automatic history requirement. Reviewable tradeoffs are stronger than invented claims of atomicity, complete audit history or personal authorship. The owner reports planning, reviewing reports/excerpts and tradeoffs, directing decisions, and manual end-user testing; Codex performed implementation/automated verification and ChatGPT helped planning/explanations. No comprehensive security audit or line-by-line independent authorship is claimed.
+
+Interview questions and concise answers are in docs/SUBMISSION.md. Production acceptance statuses and reproducible manual steps are in docs/PRODUCTION_ACCEPTANCE.md. Final recommendation: READY to submit with disclosed limitations; do not submit on the owner's behalf.
